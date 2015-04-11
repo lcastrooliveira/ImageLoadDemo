@@ -3,6 +3,8 @@ package com.example.lucas.imageloaddemo;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
@@ -44,9 +46,39 @@ public class ImageViewFragment extends Fragment {
     }
 
     public void loadBitmap(int resId, ImageView imageView) {
-        BitmapWorkerTask task = new BitmapWorkerTask(imageView);
-        task.execute(resId);
+        if(cancelPotentialWork(resId,imageView)) {
+            final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
+            final AsyncDrawable asyncDrawable = new AsyncDrawable(getResources(),null,task);
+            imageView.setImageDrawable(asyncDrawable);
+            task.execute(resId);
+        }
     }
+
+
+    private boolean cancelPotentialWork(int data, ImageView imageView) {
+        final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
+        if(bitmapWorkerTask != null) {
+            final int bitmapData = bitmapWorkerTask.data;
+            if(bitmapData == 0 || bitmapData != data) {
+                bitmapWorkerTask.cancel(true);
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static BitmapWorkerTask getBitmapWorkerTask(ImageView imageView) {
+        if(imageView != null) {
+            final Drawable drawable = imageView.getDrawable();
+            if(drawable instanceof AsyncDrawable) {
+                final AsyncDrawable asyncDrawable = (AsyncDrawable)drawable;
+                return asyncDrawable.getBitmapWorkerTask();
+            }
+        }
+        return null;
+    }
+
 
     public static Bitmap decodeSampledBitmapFromResource(Resources res, int resId,int reqWidth,int reqHeight) {
         //First decode with inJustDecodeBounds=true to check dimensions
@@ -103,11 +135,28 @@ public class ImageViewFragment extends Fragment {
 
         @Override
         protected void onPostExecute(Bitmap bitmap) {
+            if(isCancelled()) {
+                bitmap = null;
+            }
             if(imageViewReference != null && bitmap != null) {
                 final ImageView imageView = imageViewReference.get();
-                if(imageView != null)
+                final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
+                if(this == bitmapWorkerTask && imageView != null)
                     imageView.setImageBitmap(bitmap);
             }
+        }
+    }
+
+    static class AsyncDrawable extends BitmapDrawable {
+        private final WeakReference<BitmapWorkerTask> bitmapWorkerTaskWeakReference;
+
+        public AsyncDrawable(Resources res, Bitmap bitmap, BitmapWorkerTask bitmapWorkerTask) {
+            super(res,bitmap);
+            bitmapWorkerTaskWeakReference = new WeakReference<BitmapWorkerTask>(bitmapWorkerTask);
+        }
+
+        public BitmapWorkerTask getBitmapWorkerTask() {
+            return bitmapWorkerTaskWeakReference.get();
         }
     }
 
