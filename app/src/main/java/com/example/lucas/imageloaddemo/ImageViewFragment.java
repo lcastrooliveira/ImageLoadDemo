@@ -1,5 +1,6 @@
 package com.example.lucas.imageloaddemo;
 
+
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -8,6 +9,8 @@ import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.util.LruCache;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -22,8 +25,42 @@ import java.lang.ref.WeakReference;
 public class ImageViewFragment extends Fragment {
 
     public static final String FRAGMENT_TAG = "ImageLoadDemo";
+    LruCache<String,Bitmap> mMemoryCache;
 
     public ImageViewFragment() {
+    }
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        final int maxMemory = (int)(Runtime.getRuntime().maxMemory()/1024);
+        final int cacheSize = maxMemory/8;
+        mMemoryCache = new LruCache<String,Bitmap>(cacheSize) {
+            @Override
+            protected int sizeOf(String key, Bitmap bitmap) {
+                return bitmap.getByteCount()/1024;
+            }
+        };
+        setRetainInstance(true);
+    }
+
+    public static ImageViewFragment findOrCreateFragment(FragmentManager fm) {
+        ImageViewFragment fragment = (ImageViewFragment)fm.findFragmentByTag(FRAGMENT_TAG);
+        if(fragment == null) {
+            fragment = new ImageViewFragment();
+            //fm.beginTransaction().add(fragment,FRAGMENT_TAG).commit();
+        }
+        return fragment;
+    }
+
+    public void addBitmapToMemoryCache(String key, Bitmap bitmap) {
+        if(getBitmapFromMemCache(key)==null) {
+            mMemoryCache.put(key,bitmap);
+        }
+    }
+
+    public Bitmap getBitmapFromMemCache(String key) {
+        return mMemoryCache.get(key);
     }
 
     @Override
@@ -46,14 +83,21 @@ public class ImageViewFragment extends Fragment {
     }
 
     public void loadBitmap(int resId, ImageView imageView) {
-        if(cancelPotentialWork(resId,imageView)) {
-            final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
-            final AsyncDrawable asyncDrawable = new AsyncDrawable(getResources(),null,task);
-            imageView.setImageDrawable(asyncDrawable);
-            task.execute(resId);
+        final String imageKey = String.valueOf(resId);
+        final Bitmap  bitmap = getBitmapFromMemCache(imageKey);
+        if(bitmap != null) {
+            Log.i(FRAGMENT_TAG,"This image is in cache");
+            imageView.setImageBitmap(bitmap);
+        }
+        else {
+            if(cancelPotentialWork(resId,imageView)) {
+                final BitmapWorkerTask task = new BitmapWorkerTask(imageView);
+                final AsyncDrawable asyncDrawable = new AsyncDrawable(getResources(),null,task);
+                imageView.setImageDrawable(asyncDrawable);
+                task.execute(resId);
+            }
         }
     }
-
 
     private boolean cancelPotentialWork(int data, ImageView imageView) {
         final BitmapWorkerTask bitmapWorkerTask = getBitmapWorkerTask(imageView);
@@ -130,7 +174,9 @@ public class ImageViewFragment extends Fragment {
         protected Bitmap doInBackground(Integer... params) {
             Log.i(FRAGMENT_TAG, "Inside Async Task");
             data = params[0];
-            return ImageViewFragment.this.decodeSampledBitmapFromResource(getResources(), data, 100, 100);
+            final Bitmap bitmap = ImageViewFragment.this.decodeSampledBitmapFromResource(getResources(), data, 100, 100);
+            addBitmapToMemoryCache(String.valueOf(data),bitmap);
+            return bitmap;
         }
 
         @Override

@@ -1,6 +1,8 @@
 package com.example.lucas.imageloaddemo;
 
+import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.support.v4.util.LruCache;
 import android.support.v7.app.ActionBarActivity;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -10,14 +12,30 @@ public class MainActivity extends ActionBarActivity {
 
     public static final String APP_TAG = "ImageLoadDemo";
 
+    private LruCache<String,Bitmap> mMemoryCache;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        ImageViewFragment imageViewFragment = ImageViewFragment.findOrCreateFragment(getSupportFragmentManager());
+        mMemoryCache = imageViewFragment.mMemoryCache;
+        final int maxMemory = (int)(Runtime.getRuntime().maxMemory()/1024);
+        final int cacheSize = maxMemory/8;
+        if(mMemoryCache == null) {
+            mMemoryCache = new LruCache<String,Bitmap>(cacheSize) {
+                @Override
+                protected int sizeOf(String key, Bitmap bitmap) {
+                    return bitmap.getByteCount()/1024;
+                }
+            };
+            imageViewFragment.mMemoryCache = this.mMemoryCache;
+        }
+
         if (savedInstanceState == null) {
             getSupportFragmentManager().beginTransaction()
-                    .add(R.id.container, new ImageViewFragment())
-                    .commit();
+                .add(R.id.container, imageViewFragment)
+                .commit();
         }
     }
 
